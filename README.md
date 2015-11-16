@@ -1,7 +1,9 @@
 # PhatBlocks
 
 
-### Getting started
+### Getting started (MacOS)
+
+`brew install node`
 
 `npm install bitcoin async`
 
