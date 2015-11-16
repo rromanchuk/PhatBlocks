@@ -7,7 +7,7 @@ var addresses = []
 
 var client = new bitcoind.Client({
   host: 'localhost',
-  port: 9999,
+  port: yourport,
   user: 'youruser',
   pass: 'yourpass',
   timeout: 30000
