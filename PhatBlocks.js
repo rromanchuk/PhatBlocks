@@ -1,9 +1,12 @@
 var async = require('async')
 var bitcoind = require("bitcoin")
+var _ = require('lodash');
+var bitcoinjs = require("bitcoinjs-lib")
 
+FAUCET = "n2eMqTT929pb1RDNuqEnxdaLau1rxy3efi"
 var batch = [];
 var addresses = []
-
+var randomKeyPair = bitcoinjs.ECPair.makeRandom({network: bitcoinjs.networks.testnet})
 
 var client = new bitcoind.Client({
   host: 'localhost',
@@ -40,14 +43,15 @@ async.waterfall([
     function (address, cb) {
       console.log("Looking for UTXOs to use")
       client.listUnspent(0, 9999999, function(err, utxos) {
-        async.eachSeries(utxos, function(utxo, callback) {
+
+        async.eachSeries(_.chunk(utxos, 3), function(utxos, callback) {
           console.log("Found a UTXO to work with");
           //console.log("UTXO -> ", utxo)
           if (batch.length > 100) {
             console.log("Woah, you've been busy, let's broadcast!")
             push()
           }
-          createRaw([utxo], amounts(utxo.amount), callback)
+          createRaw(utxos, amounts(utxos), callback)
           }, function(err) {
             console.log("Finished processing a utxo")
             cb(err, true)
@@ -71,45 +75,56 @@ async.waterfall([
         console.log(err); 
       } else {
         console.log('SUCESS txid -> ', txid);
-        //createTransaction(utxo, value)
       }
     });
   }
 
-  function amounts(value) {
-    var satoshisTo = getSatoshisBTC();
-    var fees = satoshisTo * 0.0002;
-    console.log("UTXO amount to work with -> ", value);
-    console.log("Sending back to faucet (external address) -> ",  satoshisTo);
-    console.log("Fees paying -> ", fees);
+  function amounts(utxos) {
+    var amounts = {}
+    var value = _.sum(_.map(utxos, 'amount'));
 
+    console.log("Toal UTXO Value ->", value);
+    var satoshisTo = getSatoshisBTC();
+    var feeRate = getFeeRate();
+    var bytes = 148 * utxos.length + 34 * 2 + 10
+    console.log("Toal KB ->", bytes/ 1000);
+    var fees = (bytes / 1000) * feeRate
+
+    console.log("Fee rate -> ", feeRate);
+    console.log("Fees paying -> ", fees);
+   
     if (satoshisTo > (value - fees)) {
-      value = value - fees
+      //value = value - fees
       console.log("This is a small utxo, lets burn it all");
       console.log("Amount to faucet -> ", value);
-      return {"n2eMqTT929pb1RDNuqEnxdaLau1rxy3efi": value}
+      amounts[FAUCET] = value
     } else {
-      value = value - fees - satoshisTo
       
+      var externalSatoshi = satoshisTo/2
+      console.log("Sending to external addresses -> ",  satoshisTo);
+
+      amounts[FAUCET] = externalSatoshi
+      console.log("Amount to faucet -> ", externalSatoshi);
+      amounts[randomKeyPair.getAddress()] = externalSatoshi
+      console.log("Stranger -> ", externalSatoshi);
+
+      value = value - fees - satoshisTo
       var backToUs = value/3
-      var amounts = {}
       amounts[addresses[0]] = backToUs
       console.log("Amount to us -> ", backToUs);
       amounts[addresses[1]] = backToUs
       console.log("Amount to us -> ", backToUs);
       amounts[addresses[2]] = backToUs
       console.log("Amount to us -> ", backToUs);
-      amounts["n2eMqTT929pb1RDNuqEnxdaLau1rxy3efi"] = satoshisTo
-      console.log("Amount to faucet -> ", value);
-      return amounts
     }
-
+    return amounts
   }
 
   function createRaw(utxos, outputs, callback) {
     console.log("\n\n")
-    //console.log("UTXOs -> ", JSON.stringify(utxos, null, 2))
+    console.log("Inputs -> ", JSON.stringify(utxos, null, 2))
     console.log("Outputs -> ", JSON.stringify(outputs, null, 2))
+    console.log("\n\n")
     client.createRawTransaction(utxos, outputs, function(err, rawTx) {
       if (err) {
         console.log(err)
@@ -131,6 +146,12 @@ async.waterfall([
     });
   }
 
+  function getFeeRate() {
+    return (Math.random() * (0.001 - 0.0001) + 0.0001);
+  }
+
   function getSatoshisBTC() {
-    return Math.random() * (0.0001 - 0.0000001) + 0.0000001;
+    return Math.random() * (0.001 - 0.0000001) + 0.0000001;
   }  
+    
+    
